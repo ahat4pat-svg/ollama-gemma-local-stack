@@ -12,6 +12,17 @@ $ErrorActionPreference = "Stop"
 Write-Host "`n=== Ollama + Gemma 4 local server install (HP, 16 GB) ===" -ForegroundColor Cyan
 Write-Host "This script does NOT need Administrator (except step 6 — firewall — which is optional).`n"
 
+# --- PREREQUISITE CHECK : did you prep the PC first? --------------------------
+
+Write-Host "PREREQUISITE : have you read setup/windows/prepare-pc-as-server.md ?" -ForegroundColor Yellow
+Write-Host "  That guide covers : disk cleanup, RAM freeing, power settings, external drive for models, etc."
+Write-Host "  It's important for 16 GB machines — you may not have enough free space otherwise."
+$prepped = Read-Host "  Have you prepped the PC (or do you want to skip and proceed anyway)? (yes/skip)"
+if ($prepped -ne 'yes' -and $prepped -ne 'skip') {
+    Write-Host "  Stopping. Open setup/windows/prepare-pc-as-server.md and follow at least the minimum steps." -ForegroundColor Yellow
+    exit
+}
+
 # --- 0. CRITICAL pre-install env vars (turbo quant + KV cache + RAM caps) -----
 
 Write-Host "[0/8] Setting pre-install env vars (Flash Attention + KV-cache quant + RAM caps)..." -ForegroundColor Yellow

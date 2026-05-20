@@ -31,9 +31,21 @@ This repo answers it, step by step.
 - **[Tailscale](https://tailscale.com)** — private mesh between Mac/Win/Linux machines
 - **[LiteLLM](https://litellm.ai)** — drop-in OpenAI-compatible proxy, routes local + cloud fallback
 
+## ⚠️ Read this first if you're on a 16 GB machine
+
+**Before installing anything**, clean up your PC and free disk/RAM.
+A 16 GB consumer machine has to be smart about space — moving models
+to an external drive, disabling Windows bloat, etc.
+
+👉 [`setup/windows/prepare-pc-as-server.md`](setup/windows/prepare-pc-as-server.md)
+
+Once your machine is prepped, then run the install.
+
 ## What's in this repo
 
-- [`setup/windows/install-ollama-windows.md`](setup/windows/install-ollama-windows.md) — step-by-step PowerShell install on the HP
+- [`setup/windows/prepare-pc-as-server.md`](setup/windows/prepare-pc-as-server.md) — **start here** : prep the PC (disk, RAM, services, power)
+- [`setup/windows/install.ps1`](setup/windows/install.ps1) — automated Ollama + Gemma 4 install (Flash Attention, KV cache, env vars)
+- [`setup/windows/install-ollama-windows.md`](setup/windows/install-ollama-windows.md) — manual step-by-step install guide (read alongside the script)
 - [`setup/tailscale/`](setup/tailscale/) — mesh setup notes (Mac / Windows / Linux)
 - [`setup/litellm/`](setup/litellm/) — proxy config (local Ollama + cloud fallback)
 - [`benchmarks/`](benchmarks/) — real numbers : tokens/sec, RAM, throughput on 16 GB
