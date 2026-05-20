@@ -1,231 +1,200 @@
-# Prepare your 16 GB PC as a dedicated AI server
+# Prepare a Windows 16 GB PC for Gemma 4 on 16 GB — Local AI Server Kit
 
-Before installing Ollama + Gemma, prep the machine. The goal :
-- **Free up disk space** (Gemma 4 MoE alone is ~26 GB; you want 60+ GB free for models + workspace)
-- **Free up RAM** by killing unnecessary background stuff (you only have 16 GB)
-- **Stop the machine from sleeping** when no one is at the keyboard
-- **Move large data to external storage** so the SSD stays lean
+Before you install Ollama or pull models, prepare the machine so the first run is stable.
+This guide focuses on the product realities of a 16 GB Windows server build:
 
-You don't have to do every step. Pick what applies to your situation.
+- audit first
+- preserve required system/network pieces like **Tailscale**
+- move heavy AI storage to an **external drive first**
+- keep cleanup actions practical and reversible where possible
+
+## Recommended order
+
+Start with the main entrypoint:
+
+```powershell
+.\setup\windows\bootstrap.ps1 -Mode Audit
+.\setup\windows\bootstrap.ps1 -Mode Prepare -ExternalDrive E:
+```
+
+If you want a fully manual path, use the checklist below.
 
 ---
 
-## 1. Disk cleanup — free up space
+## 1. Audit the machine before cleanup
 
-### 1.1 Built-in disk cleanup
+What to check first:
+
+- free disk on `C:`
+- idle RAM available
+- whether Ollama is already installed
+- whether Tailscale is installed and needed for your mesh
+- whether an external drive is available for models and workspace data
+
+You can capture this with:
+
+```powershell
+.\setup\windows\audit.ps1
+```
+
+---
+
+## 2. Clean up disk space without breaking the server role
+
+### 2.1 Built-in Windows cleanup
+
 ```powershell
 # Run as Administrator
 cleanmgr /sageset:1
-# UI opens — check everything safe (Temporary Files, Recycle Bin, Windows Update Cleanup, Delivery Optimization Files, Old Windows Installations)
-# Then :
 cleanmgr /sagerun:1
 ```
 
-### 1.2 Storage Sense (Windows 10/11 auto-cleanup)
-```powershell
-# Open Settings -> System -> Storage -> Storage Sense
-# Turn it ON, set to clean :
-#  - Temporary files weekly
-#  - Recycle Bin every 14 days
-#  - Downloads after 60 days
-```
+Safe candidates usually include:
 
-### 1.3 Remove bloatware / unused apps
-```powershell
-# List installed apps (sort by size)
-Get-AppxPackage | Select-Object Name, PackageFullName | Out-GridView
-# Or just :
-appwiz.cpl
-# Uninstall what you don't use : games trial, OEM tools, Cortana clutter, Xbox stuff
-```
+- Temporary Files
+- Recycle Bin
+- Windows Update Cleanup
+- Delivery Optimization Files
 
-### 1.4 Disable hibernation (frees ~12 GB on the C: drive if your machine has 16 GB RAM)
+### 2.2 Disable hibernation if you need space back
+
 ```powershell
 # Run as Administrator
 powercfg /hibernate off
 ```
 
----
+On a 16 GB machine this can free a large file from `C:`.
 
-## 2. Move user data to external drive
-
-If your C: drive is small (< 256 GB), move Documents/Pictures/Videos to an external drive.
+### 2.3 Remove apps you know you do not need
 
 ```powershell
-# Plug in external drive, note its letter (e.g. E:)
-# Method : Right-click each folder (Documents, Pictures, Videos, Downloads) in File Explorer
-#   -> Properties -> Location tab -> Move... -> point to E:\Documents (etc.)
-# Windows will copy + redirect. Future writes go to E:.
+appwiz.cpl
 ```
 
-**Caution** : if E: drive is unplugged, those folders are inaccessible. Use only if drive will stay plugged in 24/7.
+Focus on unused OEM tools, game launchers, and other non-essential software.
+Do **not** strip required remote-access/network tooling if the PC is meant to remain reachable.
 
 ---
 
-## 3. Move Ollama models to external/dedicated drive
+## 3. Preserve Tailscale and other required access pieces
 
-Gemma 4 MoE = ~26 GB. Plus other models. Move the Ollama models directory to a drive with space :
+For this repo, **Tailscale is expected to stay** if the Windows machine acts as a local AI server for other devices.
+
+Keep enabled if relevant:
+
+- Tailscale
+- Ollama startup entry (once installed)
+- any essential remote admin tool you actually depend on
+
+Be cautious about “cleanup” advice that disables everything indiscriminately.
+
+---
+
+## 4. External-drive-first storage strategy
+
+For a 16 GB build, assume model files and AI workspace data should live off the system drive whenever possible.
+
+Use the helper script:
 
 ```powershell
-# Set the OLLAMA_MODELS env var BEFORE first model pull
-# (Already in install.ps1 step 0, just uncomment and set the path)
-[System.Environment]::SetEnvironmentVariable('OLLAMA_MODELS', 'D:\ollama-models', 'User')
-
-# If models are already on C:, copy them and update var :
-robocopy "$env:USERPROFILE\.ollama\models" "D:\ollama-models" /MIR
-# Then restart Ollama (system tray -> Quit -> relaunch)
+.\setup\windows\setup-external-drive.ps1 -ExternalDrive E:
 ```
 
----
+That script creates:
 
-## 4. Free up RAM — disable startup apps
-
-Press `Ctrl+Shift+Esc` to open Task Manager → **Startup** tab → disable everything you don't need at boot.
-
-Common offenders (safe to disable for a dedicated server) :
-- OneDrive (unless you actually use it)
-- Microsoft Teams
-- Spotify, Discord, etc.
-- Cortana
-- Skype
-- Windows Security notification icon
-- OEM bloatware (HP Customer Experience Improvement Program, etc.)
-
-**Keep enabled** :
-- Tailscale (you need this for the mesh)
-- Ollama (if you set it as startup app)
-
----
-
-## 5. Disable unnecessary Windows services
-
-```powershell
-# Run as Administrator. Disabling these saves RAM + CPU :
-
-# Windows Search indexing (saves ~300 MB RAM, you don't need fast file search on a server)
-Set-Service -Name WSearch -StartupType Disabled
-Stop-Service -Name WSearch -Force
-
-# SysMain (formerly Superfetch — useful on slow HDD, useless on SSD)
-Set-Service -Name SysMain -StartupType Disabled
-Stop-Service -Name SysMain -Force
-
-# Print Spooler (if no printer)
-Set-Service -Name Spooler -StartupType Disabled
-Stop-Service -Name Spooler -Force
-
-# Connected User Experiences and Telemetry (privacy + RAM)
-Set-Service -Name DiagTrack -StartupType Disabled
-Stop-Service -Name DiagTrack -Force
+```text
+E:\gemma4-local-ai-server-kit\
+├─ ollama-models\
+├─ workspace\
+├─ datasets\
+├─ reports\
+├─ exports\
+├─ backups\
+└─ cloud-sync\
 ```
 
-Reboot after this batch.
+It also sets `OLLAMA_MODELS` to the external model path.
 
 ---
 
-## 6. Power settings — stay awake 24/7
+## 5. Reduce startup clutter
 
-A server needs to NEVER sleep.
+Open Task Manager → **Startup** and disable apps you do not want consuming RAM at boot.
+
+Candidates often include:
+
+- Teams
+- Spotify
+- Discord
+- OEM updaters you do not use
+- other consumer apps unrelated to the local server role
+
+Keep anything necessary for the machine’s real role.
+
+---
+
+## 6. Keep the machine awake like a server
 
 ```powershell
-# Set High Performance power plan
 powercfg /setactive SCHEME_MIN
-
-# Never sleep, never turn off display, never hibernate
 powercfg /change standby-timeout-ac 0
-powercfg /change standby-timeout-dc 0
 powercfg /change monitor-timeout-ac 0
-powercfg /change monitor-timeout-dc 0
 powercfg /change hibernate-timeout-ac 0
-powercfg /change hibernate-timeout-dc 0
 ```
 
-Also check : **Settings → System → Power & sleep** — set everything to "Never".
-
-**Lid close action** (laptop) : Settings → Control Panel → Power Options → "Choose what closing the lid does" → "Do nothing" for both AC and battery (if you'll close the lid and let it stay plugged in).
+Also review the lid-close action if you are using a laptop as a closed-lid local server.
 
 ---
 
-## 7. Disable Windows visual effects (free a tiny bit of RAM + GPU)
+## 7. Optional Ollama reset before reinstall
+
+If the machine already has a messy or partially working Ollama install, use:
 
 ```powershell
-# Run :
-SystemPropertiesPerformance.exe
-# UI -> Visual Effects tab -> Adjust for best performance
-# Or only keep : smooth edges of screen fonts + show thumbnails instead of icons
+.\setup\windows\clean-ollama.ps1
 ```
 
----
-
-## 8. Set up auto-restart of Ollama on boot
-
-Ollama installs itself as a startup app by default. Verify :
+For a deeper reset including model storage:
 
 ```powershell
-# Task Manager -> Startup tab -> "ollama" should be Enabled
-# If not, right-click it -> Enable
+.\setup\windows\clean-ollama.ps1 -RemoveModels
 ```
 
-If Ollama doesn't auto-start :
+Detailed guidance:
+
+- [`../../docs/windows-reset-and-clean.md`](../../docs/windows-reset-and-clean.md)
+
+---
+
+## 8. Install path after preparation
+
+Once the machine is ready, install the default model first:
 
 ```powershell
-# Add a startup shortcut manually :
-$startup = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup"
-$WshShell = New-Object -ComObject WScript.Shell
-$Shortcut = $WshShell.CreateShortcut("$startup\Ollama.lnk")
-$Shortcut.TargetPath = "$env:LOCALAPPDATA\Programs\Ollama\ollama app.exe"
-$Shortcut.Save()
+.\setup\windows\bootstrap.ps1 -Mode Install -Model gemma4:e4b -ExternalDrive E:
 ```
 
----
-
-## 9. Optional : page file (virtual memory)
-
-If you only have 16 GB RAM and run big models, having a generous page file on a fast SSD helps avoid hard crashes when RAM is full.
+Then test:
 
 ```powershell
-# Set page file : Initial 8192 MB, Max 16384 MB on C: (or your fast SSD)
-# UI : SystemPropertiesAdvanced.exe -> Advanced tab -> Performance Settings -> Advanced -> Virtual Memory -> Change
+.\setup\windows\bootstrap.ps1 -Mode Test -Model gemma4:e4b
 ```
 
-Don't set it on an HDD — it'll be too slow.
-
----
-
-## 10. Verify after reboot
-
-After all the above, reboot. Then check :
+Only after that should you try the experimental benchmark path:
 
 ```powershell
-# Free RAM
-Get-CimInstance Win32_OperatingSystem | Select-Object @{N='Free RAM (GB)';E={[Math]::Round($_.FreePhysicalMemory/1MB,2)}}, @{N='Total RAM (GB)';E={[Math]::Round($_.TotalVisibleMemorySize/1MB,2)}}
-
-# Free disk
-Get-PSDrive -PSProvider FileSystem | Select-Object Name, @{N='Free GB';E={[Math]::Round($_.Free/1GB,2)}}, @{N='Used GB';E={[Math]::Round($_.Used/1GB,2)}}
+.\setup\windows\bootstrap.ps1 -Mode Benchmark -Model gemma4:26b
 ```
 
-Target after cleanup :
-- Free RAM at idle : **≥ 12 GB** (out of 16 GB)
-- Free disk on C: : **≥ 60 GB** if storing models on C:, or **≥ 20 GB** if models go to external/D:
-
-If you hit those targets, your machine is ready to be a Gemma server.
-
 ---
 
-## Recap : minimum steps if you're in a hurry
+## 9. Conservative optimization note
 
-1. `powercfg /hibernate off` (free disk space)
-2. `cleanmgr` (run disk cleanup, check all safe options)
-3. Task Manager → Startup → disable everything you don't need at boot
-4. `powercfg` commands above (never sleep)
-5. Set `OLLAMA_MODELS` to external drive if your C: is tight
-6. Reboot
-7. Run `install.ps1`
+KV cache, Flash Attention, and TurboQuant matter to the long-term optimization story,
+but this repo does **not** treat them as guaranteed wins on every Ollama build.
 
-That's it. The rest are optimizations you can do later when you want to squeeze more performance.
+The safe approach is:
 
----
-
-## Document what worked / didn't on YOUR machine
-
-If you hit something specific to your model (HP Pavilion XYZ, weird OEM service, etc.), log it in [`../../docs/TROUBLESHOOTING.md`](../../docs/TROUBLESHOOTING.md) so the next person doesn't have to figure it out.
+1. get `gemma4:e4b` working first
+2. record baseline results
+3. only then test optional optimization flags and the experimental `gemma4:26b` path
