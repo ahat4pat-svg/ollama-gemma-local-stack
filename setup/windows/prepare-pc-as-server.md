@@ -10,6 +10,38 @@ You don't have to do every step. Pick what applies to your situation.
 
 ---
 
+## 0. Already have Ollama installed? Wipe it first
+
+> Skip this whole section if Ollama has never been installed on this PC.
+
+The optimized env vars (Flash Attention, KV-cache quant, RAM caps) set by `install.ps1` only take effect on a **fresh** Ollama process. If Ollama was installed and launched before with different — or no — env vars, the cleanest path is to wipe and reinstall.
+
+`install.ps1` will detect an existing install in its `[PRE]` block and walk you through this automatically. If you'd rather do it by hand :
+
+```powershell
+# 1. Quit Ollama from the system tray (right-click → Quit), then :
+Get-Process -Name 'ollama*' -ErrorAction SilentlyContinue | Stop-Process -Force
+
+# 2. Uninstall — easiest with winget
+winget uninstall --silent --id Ollama.Ollama
+# Fallback : Settings → Apps & Features → Ollama → Uninstall
+
+# 3. Wipe models + cache (this is the multi-GB one)
+Remove-Item -Recurse -Force "$env:USERPROFILE\.ollama"
+# If you previously set OLLAMA_MODELS to another drive, wipe that path too.
+
+# 4. Clear any stale env vars (User AND Machine scope)
+$vars = 'OLLAMA_HOST','OLLAMA_FLASH_ATTENTION','OLLAMA_KV_CACHE_TYPE','OLLAMA_MAX_LOADED_MODELS','OLLAMA_NUM_PARALLEL','OLLAMA_MODELS'
+foreach ($v in $vars) {
+    [System.Environment]::SetEnvironmentVariable($v, $null, 'User')
+    [System.Environment]::SetEnvironmentVariable($v, $null, 'Machine')
+}
+```
+
+Open a **new** PowerShell window afterwards so PATH refreshes, then continue with the steps below.
+
+---
+
 ## 1. Disk cleanup — free up space
 
 ### 1.1 Built-in disk cleanup
@@ -214,6 +246,7 @@ If you hit those targets, your machine is ready to be a Gemma server.
 
 ## Recap : minimum steps if you're in a hurry
 
+0. **If Ollama is already installed, wipe it first** (see §0 above) — otherwise the optimized env vars won't take effect
 1. `powercfg /hibernate off` (free disk space)
 2. `cleanmgr` (run disk cleanup, check all safe options)
 3. Task Manager → Startup → disable everything you don't need at boot

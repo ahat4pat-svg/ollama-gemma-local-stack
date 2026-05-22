@@ -23,6 +23,72 @@ if ($prepped -ne 'yes' -and $prepped -ne 'skip') {
     exit
 }
 
+# --- CLEAN SLATE : detect existing Ollama and offer a wipe --------------------
+#
+# Why this exists : the turbo-quant / Flash Attention / KV cache env vars set in
+# [0/8] only take effect on a FRESH Ollama process. If Ollama is already
+# installed AND was launched before with different (or no) env vars, the safest
+# path is to uninstall, wipe models, clear env vars, and start clean. Skip this
+# block if this is a first-time install (no `ollama` on PATH).
+
+Write-Host "`n[PRE] Checking for an existing Ollama install..." -ForegroundColor Yellow
+$existingOllama = (Get-Command ollama -ErrorAction SilentlyContinue).Source
+if ($existingOllama) {
+    Write-Host "  Found existing Ollama at $existingOllama" -ForegroundColor Yellow
+
+    $knownVars = @('OLLAMA_HOST','OLLAMA_FLASH_ATTENTION','OLLAMA_KV_CACHE_TYPE','OLLAMA_MAX_LOADED_MODELS','OLLAMA_NUM_PARALLEL','OLLAMA_MODELS')
+    Write-Host "  Current Ollama env vars :"
+    foreach ($v in $knownVars) {
+        $u = [System.Environment]::GetEnvironmentVariable($v, 'User')
+        $m = [System.Environment]::GetEnvironmentVariable($v, 'Machine')
+        if ($u) { Write-Host "    $v = $u  (User)" }
+        elseif ($m) { Write-Host "    $v = $m  (Machine)" }
+        else { Write-Host "    $v = (not set)" -ForegroundColor DarkGray }
+    }
+
+    try {
+        $models = & ollama list 2>$null
+        if ($models) { Write-Host "  Currently installed models :" ; Write-Host $models }
+    } catch {}
+
+    Write-Host "  → A clean reinstall is recommended so the optimized env vars in [0/8] take effect from first launch."
+    $reset = Read-Host "  Uninstall Ollama + wipe models + clear env vars now? (yes/no)"
+    if ($reset -eq 'yes') {
+        Write-Host "  → Stopping any running Ollama process..."
+        Get-Process -Name 'ollama*' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 2
+
+        Write-Host "  → Uninstalling Ollama via winget..."
+        & winget uninstall --silent --id Ollama.Ollama 2>$null
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "    winget didn't find the package. Open 'Apps & Features' → Ollama → Uninstall manually." -ForegroundColor Yellow
+            Read-Host "    Press ENTER once Ollama is uninstalled"
+        }
+
+        Write-Host "  → Removing model + cache directories..."
+        $modelsDir = [System.Environment]::GetEnvironmentVariable('OLLAMA_MODELS', 'User')
+        if (-not $modelsDir) { $modelsDir = [System.Environment]::GetEnvironmentVariable('OLLAMA_MODELS', 'Machine') }
+        $candidates = @("$env:USERPROFILE\.ollama", $modelsDir) | Where-Object { $_ -and (Test-Path $_) }
+        foreach ($d in $candidates) {
+            Remove-Item -Path $d -Recurse -Force -ErrorAction SilentlyContinue
+            Write-Host "    Removed $d"
+        }
+
+        Write-Host "  → Clearing old Ollama env vars (User + Machine)..."
+        foreach ($v in $knownVars) {
+            [System.Environment]::SetEnvironmentVariable($v, $null, 'User')
+            [System.Environment]::SetEnvironmentVariable($v, $null, 'Machine')
+        }
+
+        Write-Host "  ✓ Clean slate. Re-run this script in a NEW PowerShell window so PATH refreshes." -ForegroundColor Green
+        exit
+    } else {
+        Write-Host "  Keeping existing install. [0/8] will overwrite env vars — you'll restart Ollama in [2/8]." -ForegroundColor Yellow
+    }
+} else {
+    Write-Host "  No existing Ollama detected. Proceeding with a fresh install."
+}
+
 # --- 0. CRITICAL pre-install env vars (turbo quant + KV cache + RAM caps) -----
 
 Write-Host "[0/8] Setting pre-install env vars (Flash Attention + KV-cache quant + RAM caps)..." -ForegroundColor Yellow
@@ -88,39 +154,41 @@ try {
     exit 1
 }
 
-# --- 4. Pull Gemma 4 model ----------------------------------------------------
+# --- 4. Pull Gemma 4 E4B (default for 16 GB) ----------------------------------
 
-Write-Host "`n[4/8] Pulling Gemma 4 model..." -ForegroundColor Yellow
-Write-Host "  Two options for Gemma 4 :"
-Write-Host "    A) gemma4:e4b      → Edge 4B (~4 GB), fast, fits comfortably in 16 GB"
-Write-Host "    B) gemma4:moe      → Mixture-of-Experts (~26 GB on disk, only ~4.3B params active in RAM)"
-Write-Host "  MoE is a SPECIALIST model — better at deep reasoning, but slower to start (loads on demand)."
-Write-Host "  E4B is a generalist — faster, simpler, good first choice."
-Write-Host ""
-$choice = Read-Host "  Pull (a) E4B / (b) MoE / (both) / (skip) ?"
-switch ($choice) {
-    "a" { & ollama pull gemma4:e4b }
-    "b" { & ollama pull gemma4:moe }
-    "both" {
-        & ollama pull gemma4:e4b
-        & ollama pull gemma4:moe
+Write-Host "`n[4/8] Pulling Gemma 4 E4B..." -ForegroundColor Yellow
+Write-Host "  Edge 4B (~4 GB on disk) — generalist, fast, fits comfortably alongside KV cache + Windows in 16 GB."
+Write-Host "  (The MoE specialist variant exists too — see install-ollama-windows.md if you want to try it later.)"
+
+$gemmaTag = "gemma4:e4b"
+Write-Host "  → ollama pull $gemmaTag"
+& ollama pull $gemmaTag
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "  ✗ Pull failed. The tag '$gemmaTag' may not be published on Ollama's library yet." -ForegroundColor Red
+    Write-Host "    Check current Gemma tags here : https://ollama.com/library/gemma"
+    Write-Host "    Closest equivalents you can try :"
+    Write-Host "      gemma3:4b           — Gemma 3, 4B, generalist"
+    Write-Host "      gemma3:4b-it-qat    — Gemma 3, 4B, QAT (better quality at low quant)"
+    $fb = Read-Host "    Fall back to 'gemma3:4b' now? (yes/no)"
+    if ($fb -eq 'yes') {
+        $gemmaTag = "gemma3:4b"
+        & ollama pull $gemmaTag
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "  ✗ Fallback pull also failed. Aborting — fix network/tag and re-run." -ForegroundColor Red
+            exit 1
+        }
+    } else {
+        Write-Host "  Aborting. Pick a tag from the library and re-run this script." -ForegroundColor Yellow
+        Write-Host "  Log the issue in docs/TROUBLESHOOTING.md so the next person isn't stuck."
+        exit 1
     }
-    "skip" { Write-Host "  Skipped. Run later : ollama pull gemma4:e4b" }
-    default { Write-Host "  Unknown choice, defaulting to E4B" ; & ollama pull gemma4:e4b }
 }
-
-# NOTE : as of writing, if `gemma4:e4b` tag doesn't exist on Ollama library yet,
-# fall back to the closest available :
-#   ollama pull gemma3:4b
-# Document any model-tag issue in docs/TROUBLESHOOTING.md
 
 # --- 5. Quick local generation test -------------------------------------------
 
-Write-Host "`n[5/8] Quick local generation test..." -ForegroundColor Yellow
-$model = Read-Host "  Which model tag to test? (default: gemma4:e4b)"
-if (-not $model) { $model = "gemma4:e4b" }
+Write-Host "`n[5/8] Quick local generation test against '$gemmaTag'..." -ForegroundColor Yellow
 try {
-    $body = @{ model = $model; prompt = "Write a 2-line haiku about Quebec winter."; stream = $false } | ConvertTo-Json
+    $body = @{ model = $gemmaTag; prompt = "Write a 2-line haiku about Quebec winter."; stream = $false } | ConvertTo-Json
     $resp = Invoke-RestMethod -Uri "http://localhost:11434/api/generate" -Method Post -Body $body -ContentType "application/json" -TimeoutSec 90
     Write-Host "  ✓ Model responded :" -ForegroundColor Green
     Write-Host "    $($resp.response)"
@@ -169,11 +237,11 @@ Write-Host @"
   or with IP :
     curl http://100.111.6.54:11434/api/tags
 
-  Expected : JSON listing the installed models (gemma4:e4b and/or gemma4:moe).
+  Expected : JSON listing the installed model ($gemmaTag).
 
   Then run a generation from Mac :
     curl http://patoupc:11434/api/generate -d '{
-      \"model\": \"gemma4:e4b\",
+      \"model\": \"$gemmaTag\",
       \"prompt\": \"Hello from Mac to HP via Tailscale.\",
       \"stream\": false
     }'

@@ -34,13 +34,17 @@ netstat -an | findstr 11434
 
 ## 3. Pull Gemma model
 
-For a 16 GB RAM machine, sweet spot :
+For a 16 GB RAM machine, sweet spot is **Gemma 4 E4B** (Edge 4B, generalist, fast) :
 
 ```powershell
-# Gemma 4 (latest, check Ollama library for exact tag)
-ollama pull gemma3:4b
-# or if available :
-# ollama pull gemma3:12b   # Q4 quantization at 12B fits in 16 GB tight but works
+ollama pull gemma4:e4b
+```
+
+If that tag isn't on the Ollama library yet, fall back to the closest equivalent and log it in `docs/TROUBLESHOOTING.md` :
+
+```powershell
+ollama pull gemma3:4b           # Gemma 3, 4B generalist
+# ollama pull gemma3:4b-it-qat  # QAT — better quality at the same RAM cost
 ```
 
 Check what's installed :
@@ -49,10 +53,12 @@ Check what's installed :
 ollama list
 ```
 
+> **MoE variant** : there's a `gemma4:moe` (~26 GB on disk, ~4.3B active params at a time) for deeper reasoning. It technically fits the 16 GB target but is slower to load and is a specialist. Skip it on first install — try it later if E4B isn't enough for your use case.
+
 ## 4. Test locally
 
 ```powershell
-ollama run gemma3:4b "Write a 3-line haiku about a Quebec winter morning."
+ollama run gemma4:e4b "Write a 3-line haiku about a Quebec winter morning."
 ```
 
 ## 5. Test from another machine on Tailscale
@@ -69,7 +75,7 @@ Generation test :
 
 ```bash
 curl http://patoupc:11434/api/generate -d '{
-  "model": "gemma3:4b",
+  "model": "gemma4:e4b",
   "prompt": "Hello from Mac to HP via Tailscale.",
   "stream": false
 }'
