@@ -1,40 +1,45 @@
-# Hermes Agent + Mission Control setup (HP, runs alongside Ollama)
+# Hermes Agent setup (HP, with native dashboard + kanban)
 
 Install [Hermes Agent](https://github.com/NousResearch/hermes-agent)
-(Nous Research's self-improving AI agent, v0.14.0+) on the HP, wired
-to your local Ollama+Gemma via loopback, with
-[Mission Control](https://github.com/builderz-labs/mission-control)
-as the local web dashboard.
+(Nous Research's self-improving AI agent, v0.14.0+) on the HP, wired to
+your local Ollama+Gemma via loopback. Uses Hermes' **built-in web dashboard**
+(`hermes dashboard`, port 9119) and **built-in Kanban task board**
+(`hermes kanban`) — no extra software needed.
 
 - **One-shot script** : [`install.ps1`](install.ps1)
 - **Manual guide** : [`install-hermes-windows.md`](install-hermes-windows.md)
 
-Quick start (from PowerShell on the HP, NOT as Administrator) :
+## Quick start
+
+From PowerShell on the HP (NOT as Administrator) :
 
 ```powershell
 .\setup\hermes\install.ps1
 ```
 
-Once installed, launch in two PowerShell windows :
+After install, three commands cover the whole stack :
 
 ```powershell
-# Window 1
-hermes
-
-# Window 2
-cd $env:USERPROFILE\mission-control
-pnpm dev
+hermes              # interactive chat
+hermes dashboard    # web UI on http://127.0.0.1:9119  ← Mission Control
+hermes gateway run  # task dispatcher for Kanban (optional)
 ```
 
-Then open <http://localhost:3000/setup> and work with Hermes directly
-from Mission Control.
+## What's bundled (validated 2026-05-26)
 
-**About skills** : Hermes ships with a bundled base set, auto-creates more as
-it runs (procedural memory under `~/.hermes/skills/`), and lets you import
-community skills from [agentskills.io](https://agentskills.io) via the
-`/skill add` slash command. There is no documented "install everything"
-one-liner as of v0.14.0 — install per use case.
+- **85 skills** install automatically with `install.ps1`. Run
+  `hermes skills list` to see them all.
+- **Web dashboard** at `http://127.0.0.1:9119` — config, sessions, API keys,
+  embedded chat (`--tui` flag).
+- **Kanban board** stored in `~/.hermes/kanban.db` (SQLite, durable).
+- **Messaging gateway** ready for Telegram / Discord / Slack / WhatsApp etc.
+  (run `hermes setup gateway` to configure).
+- **Config** in `~/.hermes/config.yaml` (YAML, not TOML).
 
-**RAM warning (16 GB box)** : Hermes (~0.5 GB) + Mission Control dev mode
-(~0.8 GB) on top of Ollama + Gemma 4 E4B (~5 GB) is workable but tight.
-See the manual guide for the full RAM table and mitigation options.
+## What we deliberately don't install
+
+[`builderz-labs/mission-control`](https://github.com/builderz-labs/mission-control)
+is a popular community dashboard for AI agents, but it duplicates what
+`hermes dashboard` already does natively — and adds a Next.js dev server
+that costs ~800 MB RAM on a 16 GB box. Skip it unless you're orchestrating
+multiple non-Hermes agents too.

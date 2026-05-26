@@ -1,31 +1,61 @@
-# Install Hermes Agent + Mission Control on Windows (HP Pavilion, 16 GB)
+# Install Hermes Agent on Windows (HP Pavilion, 16 GB)
 
 Step-by-step PowerShell guide. Use this alongside `install.ps1` — the script
 automates the same steps, this doc explains the *why* and lists fallbacks.
 
-> **Where it runs** : everything on the HP itself. Hermes calls Ollama via
-> loopback (`http://localhost:11434`), Mission Control serves on
-> `http://localhost:3000`. No Tailscale hop needed in the agent → model loop.
+> **Validated on Linux container** : the entire install + skills + dashboard +
+> kanban flow was verified end-to-end in a Linux container before this doc was
+> written. The PowerShell equivalent on Windows uses the same official Nous
+> installer, just with `.ps1` instead of `.sh`.
 
-## 0. What you're installing
-
-| Component | Repo | Role |
-|---|---|---|
-| **Hermes Agent** | [NousResearch/hermes-agent](https://github.com/NousResearch/hermes-agent) | Self-improving AI agent, runs locally, calls Gemma via Ollama |
-| **Mission Control** | [builderz-labs/mission-control](https://github.com/builderz-labs/mission-control) | Web dashboard to monitor + dispatch tasks to Hermes |
-| **Skills** | bundled + [agentskills.io](https://agentskills.io) | Capabilities ; bundled ones ship with Hermes, more importable on demand |
-
-Versions tested : Hermes Agent v0.14.0 (2026.5.16), Mission Control (May 20, 2026 build).
-
-## 1. Prereqs (verify before installing)
-
-Ollama + Gemma 4 must already be running on this HP. From PowerShell :
+## TL;DR
 
 ```powershell
-# Ollama API responding?
-Invoke-RestMethod http://localhost:11434/api/tags
+.\setup\hermes\install.ps1
+```
 
-# Models pulled?
+After install, three commands give you the whole stack :
+
+```powershell
+hermes              # interactive chat
+hermes dashboard    # web UI on http://127.0.0.1:9119  ← this IS Mission Control
+hermes gateway run  # task dispatcher for Kanban (optional)
+```
+
+## What you're installing
+
+| Component | Source | Role |
+|---|---|---|
+| **Hermes Agent** | [NousResearch/hermes-agent](https://github.com/NousResearch/hermes-agent) | Self-improving AI agent, runs locally, calls Gemma via Ollama |
+| **85 bundled skills** | shipped with Hermes | Capabilities (github, devops, research, software-development, etc.). Installed automatically. |
+| **Web dashboard** | built-in (`hermes dashboard`) | Manages config, sessions, API keys, embedded chat (with `--tui`). **This is what people mean by "Mission Control" for Hermes.** |
+| **Kanban board** | built-in (`hermes kanban`) | Durable SQLite task board with dispatcher, swarms, parent/child deps |
+| **Messaging gateway** | built-in (`hermes gateway`) | Telegram / Discord / WhatsApp / Slack bridges + Kanban dispatcher |
+
+Version validated : Hermes Agent **v0.14.0 (2026.5.16)**.
+
+## Why we don't use builderz-labs/mission-control
+
+There's a popular community project called
+[`builderz-labs/mission-control`](https://github.com/builderz-labs/mission-control)
+that markets itself as a dashboard for AI agents. It works, but :
+
+- Hermes ships its OWN web dashboard (`hermes dashboard`). It speaks Hermes' config
+  format natively — no adapter glue.
+- builderz-labs/MC adds Node.js dev server (~800 MB RAM), SQLite, a separate port.
+  On a 16 GB box already running Ollama + Gemma + Hermes, that's wasteful.
+- The builderz-labs UI uses CrewAI / LangGraph / AutoGen adapters. Hermes works,
+  but it's the long way around.
+
+**Use the built-in `hermes dashboard`**. If you ever outgrow it (multiple
+agents from different frameworks), revisit builderz-labs/MC then.
+
+## 1. Prereqs
+
+Ollama + Gemma 4 must already run on this HP. From PowerShell :
+
+```powershell
+Invoke-RestMethod http://localhost:11434/api/tags
 ollama list
 ```
 
@@ -33,183 +63,176 @@ If either fails, finish `../windows/install.ps1` first.
 
 ## 2. RAM budget reality check (16 GB)
 
-Rough live footprint when everything is loaded :
-
 | Process | RAM |
 |---|---|
 | Windows + background | ~ 3-4 GB |
 | Ollama runtime (idle) | ~ 0.2 GB |
 | Gemma 4 E4B loaded | ~ 4-5 GB |
-| Hermes Agent | ~ 0.2-0.5 GB |
-| Mission Control (Next.js dev) | ~ 0.4-0.8 GB |
-| **Total when chatting** | **~ 8-10 GB** |
+| Hermes Agent (Python) | ~ 0.3-0.6 GB |
+| Hermes dashboard (Node, when launched) | ~ 0.3-0.5 GB |
+| Hermes gateway (Python, optional) | ~ 0.2 GB |
+| **Total when everything active** | **~ 8-10 GB** |
 
-Tight but workable. If Gemma OOMs after you add Hermes + Mission Control,
-suspect those two first. Options :
-- Switch Mission Control to Docker prod build (`docker compose up`) instead of `pnpm dev` — lower RAM.
-- Run Mission Control on the Toshiba "Mister-B" instead, point it at Hermes on HP over Tailscale.
+Tight but fine. Headroom is for Gemma's KV cache to grow during long chats.
 
 ## 3. Install Hermes Agent
 
-Nous Research's official PowerShell installer (pulls Python 3.11, Node, ripgrep, ffmpeg, git, then Hermes itself) :
+Nous Research's official PowerShell one-liner :
 
 ```powershell
 iex (irm https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.ps1)
 ```
 
+This pulls **Python 3.11, Node 22, ripgrep, ffmpeg, git** as dependencies,
+then installs Hermes Agent and syncs **85 bundled skills** into
+`~/.hermes/skills/`.
+
 **Relaunch PowerShell** so `hermes` lands in PATH, then verify :
 
 ```powershell
 hermes --version
+# Hermes Agent v0.14.0 (2026.5.16)
 ```
 
-## 4. Configure Hermes to use local Ollama
+## 4. About skills — what was wrong in my first draft
+
+Earlier drafts of this doc said there was no "install all skills" command.
+**That was wrong.** Reality :
+
+- The installer above **automatically syncs 85 bundled skills** into
+  `~/.hermes/skills/`. You don't need to do anything extra.
+- They're organized in 24 categories : `apple`, `autonomous-ai-agents`,
+  `creative`, `data-science`, `devops`, `diagramming`, `domain`, `email`,
+  `gaming`, `gifs`, `github`, `inference-sh`, `mcp`, `media`, `mlops`,
+  `note-taking`, `productivity`, `red-teaming`, `research`, `smart-home`,
+  `social-media`, `software-development`, `yuanbao`, `dogfood`.
+- Confirm with : `hermes skills list`
+
+Hermes also has a full skill management subcommand if you want to install
+community skills later :
 
 ```powershell
-hermes setup
+hermes skills browse                # paginated browser
+hermes skills search <keyword>      # search registries
+hermes skills install <name>        # install one
+hermes skills uninstall <name>      # remove
+hermes skills config                # enable/disable individual skills
 ```
 
-When the wizard asks about model providers :
+And Hermes **creates new skills autonomously** as procedural memory after
+complex tasks — they appear under `~/.hermes/skills/` over time.
+
+## 5. Configure Hermes to use local Ollama
+
+```powershell
+hermes setup model
+```
+
+Wizard prompts :
 
 | Field | Value |
 |---|---|
-| Provider type | `ollama` |
+| Provider | `ollama` (this is an alias for "custom" in the config) |
 | Base URL | `http://localhost:11434` |
-| Default model | `gemma4:e4b` (or whatever you pulled — check `ollama list`) |
+| Default model | `gemma4:e4b` (or whatever `ollama list` shows) |
 
-You can also add cloud providers (OpenRouter, Anthropic, OpenAI) here — Hermes
-will route across them. If you run LiteLLM (see `../litellm/`), point Hermes
-at LiteLLM (`http://localhost:4000` or wherever) instead of directly at Ollama
-for routing + fallback.
+Behind the scenes this edits `~/.hermes/config.yaml` :
 
-## 5. Initialize skills directory + smoke test
-
-```powershell
-hermes
+```yaml
+model:
+  default: "gemma4:e4b"
+  provider: "ollama"      # alias maps to "custom"
+  base_url: "http://localhost:11434"
 ```
 
-This opens interactive chat AND creates `~/.hermes/` (including `skills/`)
-on first run. Type a short prompt to confirm it roundtrips through Gemma.
-Then `Ctrl-C` to exit.
+You can also add cloud providers later (`hermes setup model` again, or edit
+`config.yaml`). If you run LiteLLM (see `../litellm/`), point Hermes at
+LiteLLM (`http://localhost:4000`) instead of directly at Ollama for routing
++ cloud fallback.
 
-Browse what's there :
+## 6. Initialize the Kanban task board
 
 ```powershell
-Get-ChildItem $env:USERPROFILE\.hermes\skills
+hermes kanban init
+# Creates ~/.hermes/kanban.db (SQLite, durable across reboots)
 ```
 
-## 6. About skills (and why there's no "install everything" button)
-
-Hermes' skill model is **dynamic**, not "download a package list" :
-
-1. **Bundled** : a base set ships with Hermes itself (file ops, web search, shell, etc.). No extra step needed.
-2. **Auto-created** : after complex tasks, Hermes writes new skills into `~/.hermes/skills/` as procedural memory. These accumulate as you use it.
-3. **Community** : browse [agentskills.io](https://agentskills.io). Install one from inside Hermes chat with the `/skill add <id>` slash command.
-4. **Awesome list** : [`0xNyk/awesome-hermes-agent`](https://github.com/0xNyk/awesome-hermes-agent) curates community skills + tools.
-
-> As of Hermes Agent v0.14.0 there is **no** documented `hermes skill install --all`
-> one-liner. Bulk-installing every community skill would be noisy and bloat
-> the agent's tool surface. Install per use case — and let Hermes' procedural
-> memory grow the rest naturally.
-
-## 7. Install Mission Control
-
-Needs **Node.js 22+** and **pnpm**.
+You can now create tasks from CLI :
 
 ```powershell
-# Node 22 via winget (skip if you have it)
-winget install -e --id OpenJS.NodeJS.LTS --silent
-# Relaunch PowerShell after this, then :
-node --version    # should be v22.x
-
-# pnpm
-corepack enable
-corepack prepare pnpm@latest --activate
+hermes kanban create -t "Draft cold-email for prospect X" -b default
+hermes kanban list
+hermes kanban show <task-id>
 ```
 
-Clone + install :
+Tasks don't execute until the gateway runs (next step).
+
+## 7. Launch the stack
+
+Three PowerShell windows :
 
 ```powershell
-git clone https://github.com/builderz-labs/mission-control.git $env:USERPROFILE\mission-control
-cd $env:USERPROFILE\mission-control
-.\install.ps1 -Mode local
-```
-
-Docker alternative (lower RAM, prod build) : `docker compose up` from that folder.
-
-## 8. Launch the stack
-
-Two PowerShell windows :
-
-```powershell
-# Window 1 — Hermes agent loop
+# Window 1 — interactive chat
 hermes
 ```
 
 ```powershell
-# Window 2 — Mission Control web dashboard
-cd $env:USERPROFILE\mission-control
-pnpm dev
+# Window 2 — built-in web dashboard (the "Mission Control")
+hermes dashboard
+# Opens browser to http://127.0.0.1:9119
+# Add --tui to embed Hermes chat directly in the browser :
+#   hermes dashboard --tui
 ```
-
-Open : <http://localhost:3000/setup>
-
-Create your admin account on first visit. Mission Control's API key shows
-in **Settings** after login.
-
-## 9. Wire Mission Control to Hermes
-
-Mission Control supports CrewAI, LangGraph, AutoGen out of the box and
-exposes a generic REST adapter. Hermes Agent v0.14.0 exposes an
-OpenAI-compatible local proxy.
-
-Best-effort wiring (verify against docs as you go) :
-
-1. Mission Control → Settings → copy the API key.
-2. Hermes config (`~/.hermes/config.toml` or via `hermes config`), add :
-   ```toml
-   [mission_control]
-   url = "http://localhost:3000"
-   api_key = "PASTE_FROM_MC_SETTINGS"
-   ```
-3. Restart Hermes. It should appear in Mission Control's agent list within ~30s.
-
-If the exact keys above have drifted, run `hermes config --help` and check
-the Mission Control "Connect an agent" page — then update this doc to match
-reality.
-
-## 10. Firewall (only if you want Mac access via Tailscale)
-
-By default, Mission Control on `localhost:3000` is HP-only. To open it to your
-Mac over Tailscale :
 
 ```powershell
-# Admin PowerShell required
-New-NetFirewallRule -Name 'MissionControl-Tailscale' `
-  -DisplayName 'Mission Control (Tailscale mesh)' `
-  -Direction Inbound -Protocol TCP -LocalPort 3000 `
-  -Action Allow -Profile Private
+# Window 3 (optional) — Kanban dispatcher
+hermes gateway run
+# Foreground mode. Picks up ready tasks from the Kanban board.
+# Ctrl-C to stop. To install as a Windows service instead :
+#   hermes gateway install   (may require admin)
 ```
 
-Then from Mac : <http://patoupc:3000/setup>
+## 8. Smoke test
+
+In Hermes chat (window 1) :
+
+```
+Say hi in one sentence.
+```
+
+Watch `ollama ps` in another window — you should see `gemma4:e4b` loaded.
+Confirms the wiring works end-to-end.
 
 ## Troubleshooting
 
 | Issue | Fix |
 |---|---|
 | `hermes` not found after install | Relaunch PowerShell. PATH only updates for new sessions. |
-| `hermes setup` can't reach Ollama | `Invoke-RestMethod http://localhost:11434/api/tags` — if it hangs, Ollama isn't running or `OLLAMA_HOST` is off |
-| Gemma OOMs after adding Hermes + MC | Cut one. Try Docker prod build of MC, or move MC to Toshiba |
-| `node --version` shows < 22 after winget | Relaunch PowerShell ; if still wrong, install LTS from https://nodejs.org manually |
-| Mission Control port 3000 busy | `$env:PORT=3001; pnpm dev`, or `Get-NetTCPConnection -LocalPort 3000` to see who owns it |
-| `corepack` missing | `npm install -g pnpm` as fallback |
-| Hermes' `/skill add` errors out | Slash command syntax may have changed — check `hermes` chat help (`/help`) for current syntax |
+| `hermes setup model` can't reach Ollama | `Invoke-RestMethod http://localhost:11434/api/tags` — if it hangs, Ollama isn't running or `OLLAMA_HOST` is off |
+| Gemma OOMs after adding Hermes | Stop `hermes dashboard` and `hermes gateway run` first to free RAM. Long-term : queue requests through LiteLLM with concurrency 1 |
+| `hermes dashboard` says port 9119 busy | `hermes dashboard --port 9120` |
+| `hermes dashboard --status` shows phantom processes | Known false-positive in PID search — `hermes dashboard --stop` will still work to clean up real instances |
+| `hermes doctor` flags missing deps | Run `hermes postinstall` to re-bootstrap node/ripgrep/ffmpeg |
+| First chat is slow | Gemma loads on demand. Check `OLLAMA_KEEP_ALIVE` env var on Windows (see `../windows/`) |
+| Kanban task stays in "ready" forever | `hermes gateway run` isn't running. Start it in a separate window |
 
-## Next steps
+Useful diagnostics :
 
-Once Hermes + Mission Control are running and you can dispatch a task from the
-dashboard → see it execute on Hermes → see the result land back :
+```powershell
+hermes status        # all components health
+hermes doctor        # detailed config + dep check
+hermes dump          # full setup summary (paste in TROUBLESHOOTING.md when stuck)
+```
 
-1. Wire Hermes' OpenAI-compatible local proxy as a LiteLLM backend (see `../litellm/`).
-2. Benchmark : same task through Hermes-on-Gemma vs Hermes-on-cloud. Log in `../../benchmarks/`.
-3. Document any gotcha in `../../docs/TROUBLESHOOTING.md`.
+## What to do next
+
+Once Hermes + dashboard + Kanban are running :
+
+1. Wire Hermes' OpenAI-compatible proxy (`hermes proxy`) as a LiteLLM backend
+   so other apps in your stack can route through Hermes.
+2. Set up the messaging gateway for the platforms you actually use :
+   `hermes setup gateway` → pick Telegram / Slack / Discord / WhatsApp.
+3. Benchmark same task through Hermes-on-Gemma vs Hermes-on-cloud. Log
+   numbers in `../../benchmarks/`.
+4. Log any HP-specific gotcha (firewall, scheduled tasks, sleep mode) in
+   `../../docs/TROUBLESHOOTING.md`.
