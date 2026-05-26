@@ -48,6 +48,7 @@ Once your machine is prepped, then run the install.
 - [`setup/windows/install-ollama-windows.md`](setup/windows/install-ollama-windows.md) — manual step-by-step install guide (read alongside the script)
 - [`setup/tailscale/`](setup/tailscale/) — mesh setup notes (Mac / Windows / Linux)
 - [`setup/litellm/`](setup/litellm/) — proxy config (local Ollama + cloud fallback)
+- [`setup/hermes/`](setup/hermes/) — Hermes Agent + Mission Control on the Mac (orchestrator)
 - [`benchmarks/`](benchmarks/) — real numbers : tokens/sec, RAM, throughput on 16 GB
 - [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) — issues hit + how they got fixed (grows as I go)
 - [`examples/`](examples/) — sample workflows : cold-email gen, document summary, scraping pipeline
